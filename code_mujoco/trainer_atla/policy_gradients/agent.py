@@ -488,11 +488,12 @@ class Trainer():
         actions = ch.zeros(actions_shape)
         # Mean of the action distribution. Used for avoid unnecessary recomputation.
         action_means = ch.zeros(actions_shape)
+
         # Log Std of the action distribution.
         # action_stds = ch.zeros(actions_shape)
 
         states_shape = (self.NUM_ACTORS, traj_length+1) + initial_states.shape[2:]
-        states =  ch.zeros(states_shape)
+        states = ch.zeros(states_shape)
         iterator = range(traj_length) if not should_tqdm else tqdm.trange(traj_length)
 
         assert self.NUM_ACTORS == 1
@@ -527,6 +528,11 @@ class Trainer():
                 # When collecting trajactory for adversary, always apply the optimal attack.
                 if collect_adversary_trajectory or self.params.ADV_ADVERSARY_RATIO >= random.random():
                     if self.MODE == "adv_pa_ppo":
+
+                        # Our_change: add a pretrain attaker to attack the state
+                        if self.outer_attack_model is not None:
+                            last_states = self.outer_attack_model.apply_attack(last_states)
+
                         # Only attack a portion of steps.
                         adv_perturbation_pds = self.adversary_policy_model(last_states)
                         next_adv_perturbation_means, next_adv_perturbation_stds = adv_perturbation_pds
@@ -559,7 +565,7 @@ class Trainer():
                 # (depending on if self.COLLECT_PERTURBED_STATES is set)
 
                 # double check if the attack eps is valid
-                max_eps = (maybe_attacked_last_states - last_states).abs().max().item()
+                max_eps = ( maybe_attacked_last_states- last_states).abs().max().item()
                 attack_eps = float(self.params.ROBUST_PPO_EPS) if self.params.ATTACK_EPS == "same" else float(self.params.ATTACK_EPS)
                 if max_eps > attack_eps + 1e-5:
                     raise RuntimeError(f"{max_eps} > {attack_eps}. Attack implementation has bug and eps is not correctly handled.")
@@ -603,9 +609,13 @@ class Trainer():
             # Update histories
             # each shape: (nact, t, ...) -> (nact, t + 1, ...)
 
+            # 收集数据
             if collect_adversary_trajectory:
                 # negate the reward for minimax training. Collect states before perturbation.
                 next_rewards = -next_rewards
+                # our_change
+                if self.outer_attack_model is not None:
+                    next_rewards = - next_rewards
                 pairs = [
                     (rewards, next_rewards),
                     (not_dones, next_not_dones),
@@ -642,7 +652,7 @@ class Trainer():
             for total, v in pairs:
                 if total is states and not collect_perturbed_state:
                     # Next states, stores in the next position.
-                    total[:, t+1] = v
+                    total[:, t+1] = v # 从1开始
                 else:
                     # The current action taken, and reward received.
                     # When perturbed state is collected, we also do not neeed the +1 shift
@@ -696,8 +706,9 @@ class Trainer():
 
         return to_ret
 
-    """Compute the best observation perturbation"""
+
     def perturb_obs_fgsm(self, directions, last_states):
+        """Compute the best observation perturbation"""
         # assert self.MODE == "adv_pa_ppo"
         eps = self.params.ATTACK_EPS
         if eps == "same":
@@ -724,8 +735,9 @@ class Trainer():
         
         return update.detach()
 
-    """Conduct adversarial attack using value network."""
+
     def apply_attack(self, last_states):
+        """Conduct adversarial attack using value network."""
         if self.params.ATTACK_RATIO < random.random():
             # Only attack a portion of steps.
             return last_states
@@ -922,9 +934,10 @@ class Trainer():
             raise ValueError(f'Unknown attack method {self.params.ATTACK_METHOD}')
 
 
-    """Run trajectories and return saps and values for each state."""
+
     def collect_saps(self, num_saps, should_log=True, return_rewards=False,
                      should_tqdm=False, test=False, collect_adversary_trajectory=False):
+        """Run trajectories and return saps and values for each state."""
         table_name_suffix = "_adv" if collect_adversary_trajectory else ""
         with torch.no_grad():
             # Run trajectories, get values, estimate advantage
