@@ -11,6 +11,7 @@ import sys
 import json
 import torch
 from cox.store import Store, schema_from_dict
+import time
 
 
 # Tee object allows for logging to both stdout and to file
@@ -47,7 +48,8 @@ def main(params):
     # #
     metadata_schema = schema_from_dict(params)
     base_directory = params['out_dir']
-    store = Store(base_directory)
+    expid = params['exp_id']
+    store = Store(storage_folder=base_directory, exp_id=expid)
 
     # redirect stderr, stdout to file
     """
@@ -110,7 +112,17 @@ def main(params):
 
     # our_change: load attacker_model
     attacker = Trainer.agent_from_params(params, store=store)
-    attacker.attack_policy_network.load_state_dict(params['load_attack_model'])
+    pretrained_attacker = torch.load(params['load_attack_model'])
+    # if 'policy_model' in pretrained_attacker:
+    #     attacker.policy_model.load_state_dict(pretrained_attacker['policy_model'])
+    # if 'val_model' in pretrained_attacker:
+    #     attacker.val_model.load_state_dict(pretrained_attacker['val_model'])
+    # if 'policy_opt' in pretrained_attacker:
+    #     attacker.POLICY_ADAM.load_state_dict(pretrained_attacker['policy_opt'])
+    # if 'val_opt' in pretrained_attacker:
+    #     attacker.val_opt.load_state_dict(pretrained_attacker['val_opt'])
+    # attacker.attack_policy_network.load_state_dict(pretrained_attacker['adversary_policy_model'])
+    attacker.params.ATTACK_METHOD = 'paadvpolicy'
     p.outer_attack_model = attacker
 
 
@@ -423,10 +435,13 @@ if __name__ == '__main__':
     parser.add_argument('--deterministic', action='store_true',
                         help='disable Gaussian noise in action for --adv-policy-only mode')
     parser.add_argument('--seed', type=int, help='random seed', default=-1)
+
+    # our_change
     parser.add_argument("--load-attack-model",type=str,default=None,required=True,
                         help="load the attacker model")
-    parser.add_argument("--load-attack-model",type=str,default=None,required=True,
-                        help="load the attacker model")
+    parser.add_argument("--exp-id",type=str,required=False,default="prt"+str(int(time.time())),
+                        help='the id of the store object')
+
     parser = add_common_parser_opts(parser)
 
     args = parser.parse_args()
@@ -436,7 +451,7 @@ if __name__ == '__main__':
     json_params = json.load(open(args.config_path))
 
     extra_params = ['config_path', 'out_dir_prefix', 'load_model', 'no_load_adv_policy', 'adv_policy_only',
-                    'deterministic', 'seed']
+                    'deterministic', 'seed','load_attack_model','exp_id']
     params = override_json_params(params, json_params, extra_params)
 
     if params['adv_policy_only']:

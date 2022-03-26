@@ -914,7 +914,11 @@ class Trainer():
                                                  time_in_state=self.VALUE_CALC == "time",
                                                  activation=self.policy_activation)
                 print("Loading adversary policy network", self.params.ATTACK_ADVPOLICY_NETWORK)
-                advpolicy_ckpt = torch.load(self.params.ATTACK_ADVPOLICY_NETWORK)
+
+                if "load_attack_model" in self.params:
+                    advpolicy_ckpt = torch.load(self.params.LOAD_ATTACK_MODEL)
+                else:
+                    advpolicy_ckpt = torch.load(self.params.ATTACK_ADVPOLICY_NETWORK)
                 self.attack_policy_network.load_state_dict(advpolicy_ckpt['adversary_policy_model'])
             # Unlike other attacks we don't need step or eps here.
             # We don't sample and use deterministic adversary policy here.
